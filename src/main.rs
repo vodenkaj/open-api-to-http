@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use serde_json::{from_str, Value};
 use std::{
+    collections::{HashMap, HashSet},
     env, fs,
     io::{self, Write},
-    path::Path,
+    path,
 };
 
 #[derive(Debug)]
@@ -13,6 +15,36 @@ struct Error {
 struct Config {
     file_path: String,
     output_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Path {
+    pub responses: HashMap<i32, Response>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Response {
+    pub content: Option<HashMap<String, Value>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+enum HttpMethod {
+    get,
+    post,
+    put,
+    delete,
+    patch,
+}
+
+impl HttpMethod {
+    fn get_value(&self) -> String {
+        return format!("{:?}", &self).to_uppercase();
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Schema {
+    paths: HashMap<String, HashMap<HttpMethod, Path>>,
 }
 
 fn main() {
@@ -27,53 +59,21 @@ fn main() {
         output_path: args[2].clone(),
     };
 
-    let schema: Value = get_schema_from_file(&config);
+    let schema = get_schema_from_file(&config);
     process_schema(schema, config);
 }
 
-fn process_schema(schema: Value, config: Config) {
-    let path = schema["paths"].clone();
-    let host: String = match &schema["host"] {
-        Value::Null => match &schema["servers"] {
-            Value::Array(servers) => match &servers[0] {
-                Value::Object(server) => match &server["url"] {
-                    Value::String(url) => url.clone(),
-                    _ => panic!(
-                        "Server url is supposed to be string, not: {:?}",
-                        servers[0]["url"].to_string()
-                    ),
-                },
-                _ => panic!(
-                    "Server is supposed to be object, not: {:?}",
-                    servers[0].to_string()
-                ),
-            },
-            _ => panic!(
-                "Servers is supposed to be array, not: {:?}",
-                schema["servers"].to_string()
-            ),
-        },
-        Value::String(host) => host.clone(),
-        _ => panic!("Host or Servers must be present"),
-    };
-
-    if let Value::Object(path) = path {
-        for (endpoint, endpoint_info) in path {
-            let names = get_names(&endpoint);
-            create_folders(names.folders.to_owned(), &config.output_path);
-            create_files(endpoint_info, names, &config.output_path).expect("error not happening");
-        }
-    } else {
-        panic!(
-            "Expected type of Object at schema paths, got: {:?}",
-            path.as_str()
-        );
+fn process_schema(schema: Schema, config: Config) {
+    for (endpoint, endpoint_info) in schema.paths {
+        let names = get_names(&endpoint);
+        create_folders(names.folders.to_owned(), &config.output_path);
+        create_files(endpoint_info, names, &config.output_path).expect("error not happening");
     }
 }
 
-fn get_schema_from_file(Config { file_path, .. }: &Config) -> Value {
-    let path = Path::new(&file_path);
-    if !Path::exists(path) {
+fn get_schema_from_file(Config { file_path, .. }: &Config) -> Schema {
+    let path = path::Path::new(&file_path);
+    if !path::Path::exists(path) {
         panic!("Could not find schema at {}.", file_path);
     }
 
@@ -105,24 +105,15 @@ fn create_folders(folders: Vec<String>, output_path: &String) {
     }
 }
 
-fn create_files(path: Value, names: Names, output_path: &String) -> Result<(), io::Error> {
-    if let Value::Object(path) = path {
-        for (method, info) in path.iter() {
-            let mut file = fs::File::create(format!("{}/{}", output_path, &names.abs_path))?;
-            let res = create_http_data(info, method, &names.http_path);
-            let http_data = match res {
-                Ok(res) => res,
-                Err(error) => panic!("Error creating http_data: {:?}", error.message),
-            };
-            let formatted = format!(
-                "{}\n{}\n{}\n{}",
-                http_data.method,
-                http_data.host,
-                http_data.content_type.unwrap_or_default(),
-                http_data.auth.unwrap_or_default(),
-            );
-            file.write_all(formatted.as_bytes());
-        }
+fn create_files(
+    paths: HashMap<HttpMethod, Path>,
+    names: Names,
+    output_path: &String,
+) -> Result<(), io::Error> {
+    for (method, path) in paths.iter() {
+        let mut file = fs::File::create(format!("{}/{}", output_path, &names.abs_path))?;
+        let http_data = create_http_data(path, method, &names.http_path);
+        file.write_all(http_data.get_formatted().as_bytes());
     }
     Ok(())
 }
@@ -145,37 +136,43 @@ impl Default for HttpData {
     }
 }
 
-fn create_http_data(info: &Value, method: &String, http_path: &String) -> Result<HttpData, Error> {
-    if let Value::Object(info) = info {
-        let mut data: HttpData = Default::default();
-        data.method = format!("{} {}", method.clone().to_uppercase(), http_path);
+impl HttpData {
+    fn get_formatted(&self) -> String {
+        return format!(
+            "{}\n{}\n{}\n{}",
+            self.method,
+            self.host,
+            self.content_type.as_deref().unwrap_or_default(),
+            self.auth.as_deref().unwrap_or_default(),
+        );
+    }
+}
 
-        let responses = info["responses"].as_object();
-        if let Some(responses) = responses {
-            if responses.contains_key("200") {
-                let success_response = responses["200"].as_object().unwrap();
-                if success_response.contains_key("content") {
-                    let content = success_response["content"].as_object().unwrap();
-                    data.content_type = std::option::Option::Some(format!(
-                        "Content-Type: {}",
-                        &content.keys().next().unwrap()
-                    ))
-                }
+fn create_http_data(path: &Path, method: &HttpMethod, http_path: &String) -> HttpData {
+    let mut data: HttpData = Default::default();
+    data.method = format!("{} {}", method.get_value(), http_path);
+
+    let mut contents: HashSet<String> = HashSet::new();
+
+    for (_status, response) in &path.responses {
+        if response.content.is_some() {
+            for (key, _value) in response.content.as_ref().unwrap() {
+                contents.insert(key.to_owned());
             }
         }
-
-        return Ok(data);
     }
-    Err(Error {
-        message: format!(
-            "Schema value expected to be Object, found {}",
-            info.to_string()
-        ),
-    })
+
+    let mut res = String::new();
+    for content_type in contents {
+        res.push_str(&format!("{};", content_type));
+    }
+
+    data.content_type = Some(format!("Content-Type: {}", res));
+    return data;
 }
 
 fn create_folder_if_not_exists(name: &String) -> Result<(), io::Error> {
-    if !Path::new(name).exists() {
+    if !path::Path::new(name).exists() {
         fs::create_dir(name)?;
     }
     Ok(())
@@ -197,8 +194,12 @@ fn get_names(endpoint: &String) -> Names {
         panic!("Invalid endpoint name");
     }
 
-    let file = format!("{}.http", splits.pop().unwrap().to_owned());
-    let folders = splits.to_vec();
+    let mut folders = splits.to_vec();
+    let file = format!("{}.http", splits.last().unwrap().to_owned());
+
+    if folders.len() > 1 {
+        folders.pop();
+    }
 
     let abs_path = format!("{}/{}", folders.join("/"), file);
 
