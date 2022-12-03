@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::{
     comment::{Comment, CommentsHolder, ValueType},
     schema::{self, Path},
@@ -63,39 +61,47 @@ fn is_query_param(subs: &str) -> bool {
     return subs.starts_with("{") && subs.contains("}");
 }
 
+#[derive(Clone)]
 pub struct Names {
     pub folders: Vec<String>,
     pub file_path: String,
-    http_path: String,
+    pub file_name: String,
+    pub http_path: String,
 }
 
 impl Names {
-    pub fn new(value: String) -> Self {
+    pub fn new(value: &String) -> Self {
         let mut splits: Vec<String> = value
             .split('/')
-            .map(|split| String::from(split.to_owned()))
+            .map(|split| String::from(split.clone()))
             .collect();
 
         if splits.len() == 0 {
             panic!("Invalid endpoint name");
         }
 
-        let last_split = splits.pop().unwrap();
+        // remove query params from the splits
         splits.retain(|split| !is_query_param(split));
 
-        let mut file_path = splits.join("/");
-        let folders = splits.to_vec();
-
-        if is_query_param(&last_split) {
-            file_path.push_str(&format!("/{}.http", splits.last().unwrap().to_owned()));
-        } else {
-            file_path.push_str(&format!("/{}.http", last_split));
-        }
+        let file_path = splits.join("/");
+        let file_name = splits.pop().unwrap().clone();
+        let folders = splits.to_vec().iter().fold(Vec::new(), |mut acc, folder| {
+            if acc.len() == 0 {
+                acc.push(folder.clone());
+            } else {
+                let mut last_folder = acc.last().unwrap().clone();
+                last_folder.push_str("/");
+                last_folder.push_str(folder);
+                acc.push(last_folder.clone());
+            }
+            return acc;
+        });
 
         return Names {
+            file_name,
             folders,
             file_path,
-            http_path: value.to_owned(),
+            http_path: value.clone(),
         };
     }
 }
@@ -107,24 +113,6 @@ impl HttpData {
         // convert raw schema method "get" -> "GET"
         data.method = HttpMethod::from(method.to_owned());
         data.path = names.http_path.to_owned();
-
-        let mut contents: HashSet<String> = HashSet::new();
-
-        // get all possible content types
-        for (_status, response) in &endpoint_info.responses {
-            if response.content.is_some() {
-                for (key, _value) in response.content.as_ref().unwrap() {
-                    contents.insert(key.to_owned());
-                }
-            }
-        }
-
-        let mut res = String::new();
-        for content_type in contents {
-            res.push_str(&format!("{};", content_type));
-        }
-
-        data.content_type = Some(format!("Content-Type: {}", res));
 
         if let Some(parameters) = &endpoint_info.parameters {
             // get parameters

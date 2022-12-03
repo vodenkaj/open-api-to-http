@@ -1,10 +1,13 @@
-use std::{env, path::Path};
-
 use crate::{
     http_data::{HttpData, Names},
     schema::Schema,
     utils::{create_file, create_folders},
 };
+use std::{
+    collections::{HashMap, HashSet},
+    io::Read,
+};
+use std::{env, path::Path};
 
 struct Config {
     file_path: String,
@@ -35,9 +38,29 @@ impl Application {
             return Err(exitcode::CONFIG);
         }
 
-        if !Path::new(&config.output_path).exists() {
+        let output_dir = Path::new(&config.output_path);
+        if !output_dir.exists() {
             eprintln!("Output folder was not found at {}", config.output_path);
             return Err(exitcode::CONFIG);
+        }
+
+        if !Path::read_dir(&output_dir).unwrap().next().is_none() {
+            let mut buffer = [0; 1];
+            let mut reader = std::io::stdin();
+
+            println!("Output folder is not empty, but is required to be. Proceed with delete? y/n");
+
+            reader.read_exact(&mut buffer).unwrap();
+
+            let answer = buffer[0] as char;
+
+            if answer != 'y' {
+                println!("You have to provide empty output folder, exiting..");
+                return Err(exitcode::USAGE);
+            }
+
+            std::fs::remove_dir_all(&output_dir)
+                .expect("Successfully deleted all contents of the output directory");
         }
 
         let app = Application { config };
@@ -47,22 +70,55 @@ impl Application {
 
     pub fn run(&self) -> Result<(), exitcode::ExitCode> {
         let schema = Schema::new(&self.config.file_path);
+        let mut endpoints_map = HashMap::<String, (Vec<String>, Names)>::new();
+        let mut folder_map = HashSet::new();
 
-        for (endpoint, endpoint_stucture) in schema.paths {
-            let names = Names::new(endpoint);
+        for (path_name, endpoint_stucture) in schema.paths {
+            let mut formatted_data = Vec::new();
+            let names = Names::new(&path_name);
 
-            let mut formatted_data: Vec<String> = Vec::new();
             for (method, endpoint_info) in endpoint_stucture {
                 let http_data = HttpData::new(&names, &endpoint_info, &method);
                 formatted_data.push(http_data.get_formatted());
             }
 
-            // join all http requests for this endpoint together
-            let joined_data = &formatted_data.join("\n\n");
-            let file_path = &format!("{}/{}", &self.config.output_path, &names.file_path);
+            if endpoints_map.contains_key(&names.file_path) {
+                endpoints_map
+                    .get_mut(&names.file_path)
+                    .unwrap()
+                    .0
+                    .append(&mut formatted_data);
+            } else {
+                endpoints_map.insert(names.file_path.clone(), (formatted_data, names.clone()));
+            }
 
-            create_folders(names.folders.to_owned(), &self.config.output_path);
-            create_file(joined_data, file_path);
+            folder_map.extend(names.folders.clone());
+
+            create_folders(names.folders, &self.config.output_path);
+        }
+
+        // create files for all the endpoints
+        for (_, (data, names)) in endpoints_map {
+            let final_file_path;
+            if data.len() > 1 {
+                // if there are more endpoints with same file_path, create folder for them
+                create_folders(
+                    Vec::from([names.file_path.clone()]),
+                    &self.config.output_path,
+                );
+                final_file_path = format!("{}/{}.http", &names.file_path, &names.file_name);
+            } else if folder_map.contains(&names.file_path) {
+                // folder with same name as this file would have exist,
+                // place this file into the existing file
+                final_file_path = format!("{}/{}.http", &names.file_path, &names.file_name);
+            } else {
+                final_file_path = format!("{}.http", &names.file_path);
+            }
+
+            create_file(
+                &data.join("\n\n"),
+                &format!("{}{}", &self.config.output_path, &final_file_path),
+            );
         }
 
         return Ok(());
