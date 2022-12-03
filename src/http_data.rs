@@ -1,6 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use crate::schema::{self, Path};
+use crate::{
+    comment::{Comment, CommentsHolder, ValueType},
+    schema::{self, Path},
+};
 
 #[derive(Debug)]
 enum HttpMethod {
@@ -33,20 +36,24 @@ pub struct HttpData {
     method: HttpMethod,
     path: String,
     host: String,
-    query_params: HashMap<String, String>,
     content_type: Option<String>,
     auth: Option<String>,
+    comments: CommentsHolder,
 }
 
 impl Default for HttpData {
     fn default() -> HttpData {
         HttpData {
-            content_type: Some("Content-Type:".to_owned()),
             method: HttpMethod::GET,
             path: "".to_owned(),
             host: "Host: {{HTTP_HOST}}".to_owned(),
-            auth: Some("Authorization: {{HTTP_AUTH}}".to_owned()),
-            query_params: HashMap::new(),
+            comments: CommentsHolder {
+                query: Vec::new(),
+                parameters: Vec::new(),
+                body: Vec::new(),
+            },
+            auth: None,
+            content_type: None,
         }
     }
 }
@@ -122,38 +129,53 @@ impl HttpData {
         if let Some(parameters) = &endpoint_info.parameters {
             // get parameters
             for params in parameters {
-                // query params
-                match params.r#in.to_owned().as_str() {
-                    "query" => {
-                        let mut default = "".to_owned();
-                        if params.default.is_some() {
-                            default = params.default.as_ref().unwrap().to_owned();
-                        }
-                        data.query_params.insert(params.name.to_owned(), default);
-                    }
-                    _ => {}
+                let comment = Comment {
+                    r#type: ValueType::String,
+                    name: params.name.clone(),
+                    required: params.required,
+                    default: params.default.clone(),
+                };
+
+                match params.r#in.as_ref() {
+                    "query" => data.comments.query.push(comment),
+                    "path" => data.comments.parameters.push(comment),
+                    _ => (),
                 }
             }
         }
+
+        // TODO: Check authorization & body schema
 
         return data;
     }
 
     /// Converts HttpData struct to formatted string
     pub fn get_formatted(&self) -> String {
-        let mut params: String = "?".to_owned();
-        for (key, value) in self.query_params.to_owned() {
-            params.push_str(&format!("{}={}&", key, value));
+        let mut output: Vec<&str> = Vec::new();
+
+        // COMMENTS
+        let comments = self.comments.get_formatted();
+        if comments.len() > 0 {
+            output.push(&comments);
         }
 
-        return format!(
-            "{} {}{}\n{}\n{}\n{}",
-            self.method.to_string(),
-            self.path,
-            params,
-            self.host,
-            self.content_type.as_deref().unwrap_or_default(),
-            self.auth.as_deref().unwrap_or_default(),
-        );
+        // METHOD & PATH
+        let path_and_method = format!("{} {}", self.method.to_string(), self.path);
+        output.push(&path_and_method);
+
+        // HOST
+        output.push(&self.host);
+
+        // CONTENT-TYPE
+        if let Some(content_type) = &self.content_type {
+            output.push(content_type);
+        }
+
+        // AUTH
+        if let Some(auth) = &self.auth {
+            output.push(auth);
+        }
+
+        return output.join("\n");
     }
 }

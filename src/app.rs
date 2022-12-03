@@ -16,12 +16,12 @@ pub struct Application {
 }
 
 impl Application {
-
-    /// Valides provided parameters, and checkes if schema & folder paths exists.
+    /// Validates provided parameters, and checks whenever or not schema & folder paths exists.
     pub fn prepare() -> Result<Self, exitcode::ExitCode> {
         let args: Vec<String> = env::args().collect();
 
         if args.len() != 3 {
+            eprintln!("Not enough arguments");
             return Err(exitcode::CONFIG);
         }
 
@@ -30,7 +30,13 @@ impl Application {
             output_path: args[2].clone(),
         };
 
-        if !Path::new(&config.file_path).exists() || !Path::new(&config.output_path).exists() {
+        if !Path::new(&config.file_path).exists() {
+            eprintln!("Schema file was not found at {}", config.file_path);
+            return Err(exitcode::CONFIG);
+        }
+
+        if !Path::new(&config.output_path).exists() {
+            eprintln!("Output folder was not found at {}", config.output_path);
             return Err(exitcode::CONFIG);
         }
 

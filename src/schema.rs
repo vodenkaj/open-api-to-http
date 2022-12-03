@@ -22,6 +22,7 @@ pub struct Response {
     pub content: Option<HashMap<String, Value>>,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum HttpMethod {
     get,
@@ -43,7 +44,6 @@ pub struct Schema {
 }
 
 impl Schema {
-
     /// Creates schema and validates it
     pub fn new(path: &String) -> Schema {
         let data = fs::read_to_string(path).unwrap();
