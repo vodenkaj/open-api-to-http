@@ -1,6 +1,8 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::{
-    comment::{Comment, CommentsHolder, ValueType},
-    schema::{self, Path},
+    comment::{Comment, CommentsHolder},
+    open_api::{self, Operation, PrimitiveType, Schema},
 };
 
 #[derive(Debug)]
@@ -12,14 +14,14 @@ enum HttpMethod {
     DELETE,
 }
 
-impl From<schema::HttpMethod> for HttpMethod {
-    fn from(raw_http_data: schema::HttpMethod) -> Self {
+impl From<open_api::HttpMethod> for HttpMethod {
+    fn from(raw_http_data: open_api::HttpMethod) -> Self {
         match raw_http_data {
-            schema::HttpMethod::get => HttpMethod::GET,
-            schema::HttpMethod::post => HttpMethod::POST,
-            schema::HttpMethod::put => HttpMethod::PUT,
-            schema::HttpMethod::patch => HttpMethod::PATCH,
-            schema::HttpMethod::delete => HttpMethod::DELETE,
+            open_api::HttpMethod::get => HttpMethod::GET,
+            open_api::HttpMethod::post => HttpMethod::POST,
+            open_api::HttpMethod::put => HttpMethod::PUT,
+            open_api::HttpMethod::patch => HttpMethod::PATCH,
+            open_api::HttpMethod::delete => HttpMethod::DELETE,
         }
     }
 }
@@ -107,18 +109,18 @@ impl Names {
 }
 
 impl HttpData {
-    pub fn new(names: &Names, endpoint_info: &Path, method: &schema::HttpMethod) -> Self {
+    pub fn new(names: &Names, endpoint_info: &Operation, method: &open_api::HttpMethod) -> Self {
         let mut data: HttpData = Default::default();
 
         // convert raw schema method "get" -> "GET"
         data.method = HttpMethod::from(method.to_owned());
         data.path = names.http_path.to_owned();
 
+        // get parameters
         if let Some(parameters) = &endpoint_info.parameters {
-            // get parameters
             for params in parameters {
                 let comment = Comment {
-                    r#type: ValueType::String,
+                    possible_types: HashSet::from([PrimitiveType::String]),
                     name: params.name.clone(),
                     required: params.required,
                     default: params.default.clone(),
@@ -132,7 +134,59 @@ impl HttpData {
             }
         }
 
-        // TODO: Check authorization & body schema
+        // TODO: Handle those properly
+        // get body
+        if let Some(body) = &endpoint_info.request_body {
+            for (content, value) in &body.content {
+                match content.as_ref() {
+                    "application/json" => {
+                        // TODO: place it somewhere else
+                        data.content_type = Some(String::from("Content-Type: application/json"));
+                        match &value.schema {
+                            Schema::Object(obj) => data.comments.body.append(
+                                &mut create_comment_from_props(&obj.properties, &obj.required),
+                            ),
+
+                            Schema::AllOf { allOf } => {
+                                for obj in allOf {
+                                    data.comments.body.append(&mut create_comment_from_props(
+                                        &obj.properties,
+                                        &obj.required,
+                                    ));
+                                }
+                            }
+                            Schema::AnyOf { anyOf } => {
+                                for obj in anyOf {
+                                    data.comments.body.append(&mut create_comment_from_props(
+                                        &obj.properties,
+                                        &obj.required,
+                                    ));
+                                }
+                            }
+                            Schema::OneOf { oneOf } => {
+                                for obj in oneOf {
+                                    data.comments.body.append(&mut create_comment_from_props(
+                                        &obj.properties,
+                                        &obj.required,
+                                    ));
+                                }
+                            }
+                            Schema::Not { not } => {
+                                for obj in not {
+                                    data.comments.body.append(&mut create_comment_from_props(
+                                        &obj.properties,
+                                        &obj.required,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        // TODO: Check authorization
 
         return data;
     }
@@ -166,4 +220,29 @@ impl HttpData {
 
         return output.join("\n");
     }
+}
+
+fn create_comment_from_props(
+    props: &Option<HashMap<String, Schema>>,
+    required: &Option<Vec<String>>,
+) -> Vec<Comment> {
+    let mut comments = Vec::new();
+
+    if let Some(props) = props {
+        for (key, value) in props {
+            let comment = Comment {
+                possible_types: value.get_all_types(),
+                name: key.clone(),
+                default: Some("".to_owned()),
+                required: Some(
+                    required
+                        .clone()
+                        .unwrap_or_else(|| Vec::new())
+                        .contains(&key.clone()),
+                ),
+            };
+            comments.push(comment);
+        }
+    }
+    return comments;
 }

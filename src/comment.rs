@@ -1,21 +1,8 @@
-#[derive(Debug)]
-pub enum ValueType {
-    String,
-    Number,
-    Integer,
-    Boolean,
-    Array,
-    Object,
-}
-
-impl ToString for ValueType {
-    fn to_string(&self) -> String {
-        return format!("{:?}", &self);
-    }
-}
+use std::collections::HashSet;
+use crate::open_api::PrimitiveType;
 
 pub struct Comment {
-    pub r#type: ValueType,
+    pub possible_types: HashSet<PrimitiveType>,
     pub name: String,
     pub required: Option<bool>,
     pub default: Option<String>,
@@ -45,7 +32,7 @@ impl Comment {
         return format!(
             "{}: {}",
             name_with_optional_indicator,
-            &self.r#type.to_string(),
+            &self.possible_types.iter().map(|p_type| p_type.to_string()).collect::<Vec<String>>().join(",")
         );
     }
 }
@@ -93,7 +80,9 @@ impl CommentsHolder {
             ));
         }
 
-        // TODO: Create comments for body parameters
+        if self.body.len() > 0 {
+            output.push(get_formatted_comment(&self.body, &"Body".to_owned()));
+        }
 
         return output.join("\n");
     }

@@ -1,5 +1,5 @@
 pub mod utils;
-pub mod schema;
+pub mod open_api;
 pub mod app;
 pub mod http_data;
 pub mod comment;

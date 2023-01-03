@@ -1,7 +1,6 @@
 use crate::{
     http_data::{HttpData, Names},
-    schema::Schema,
-    utils::{create_file, create_folders},
+    utils::{create_file, create_folders}, open_api::OpenApi,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -69,7 +68,7 @@ impl Application {
     }
 
     pub fn run(&self) -> Result<(), exitcode::ExitCode> {
-        let schema = Schema::new(&self.config.file_path);
+        let schema = OpenApi::new(&self.config.file_path);
         let mut endpoints_map = HashMap::<String, (Vec<String>, Names)>::new();
         let mut folder_map = HashSet::new();
 
