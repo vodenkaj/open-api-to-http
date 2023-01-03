@@ -44,7 +44,7 @@ impl Default for HttpData {
         HttpData {
             method: HttpMethod::GET,
             path: "".to_owned(),
-            host: "Host: {{HTTP_HOST}}".to_owned(),
+            host: "host: {{HTTP_HOST}}".to_owned(),
             comments: CommentsHolder {
                 query: Vec::new(),
                 parameters: Vec::new(),
