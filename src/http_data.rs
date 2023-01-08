@@ -63,7 +63,7 @@ fn is_query_param(subs: &str) -> bool {
     return subs.starts_with("{") && subs.contains("}");
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Names {
     pub folders: Vec<String>,
     pub file_path: String,
@@ -82,10 +82,10 @@ impl Names {
             panic!("Invalid endpoint name");
         }
 
-        // remove query params from the splits
-        splits.retain(|split| !is_query_param(split));
+        // remove query params & empty strings from the splits
+        splits.retain(|split| split.len() > 0 && !is_query_param(split));
 
-        let file_path = splits.join("/");
+        let file_path = format!("/{}", splits.join("/"));
         let file_name = splits.pop().unwrap().clone();
         let folders = splits.to_vec().iter().fold(Vec::new(), |mut acc, folder| {
             if acc.len() == 0 {

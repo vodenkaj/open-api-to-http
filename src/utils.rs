@@ -10,7 +10,7 @@ fn create_folder_if_not_exists(name: &String) -> Result<(), io::Error> {
 }
 
 /// Creates provided folders in order at specified path.
-pub fn create_folders(folders: Vec<String>, output_path: &String) {
+pub fn create_folders(folders: &Vec<String>, output_path: &String) {
     for folder in folders {
         let path = format!("{}/{}", output_path, folder);
         create_folder_if_not_exists(&path).unwrap();

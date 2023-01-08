@@ -93,7 +93,7 @@ impl Application {
 
             folder_map.extend(names.folders.clone());
 
-            create_folders(names.folders, &self.config.output_path);
+            create_folders(&names.folders, &self.config.output_path);
         }
 
         // create files for all the endpoints
@@ -102,7 +102,7 @@ impl Application {
             if data.len() > 1 {
                 // if there are more endpoints with same file_path, create folder for them
                 create_folders(
-                    Vec::from([names.file_path.clone()]),
+                    &Vec::from([names.file_path.clone()]),
                     &self.config.output_path,
                 );
                 final_file_path = format!("{}/{}.http", &names.file_path, &names.file_name);
