@@ -1,6 +1,7 @@
 use crate::{
     http_data::{HttpData, Names},
-    utils::{create_file, create_folders}, open_api::OpenApi,
+    open_api::OpenApi,
+    utils::{create_file, create_folders},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -18,7 +19,7 @@ pub struct Application {
 }
 
 impl Application {
-    /// Validates provided parameters, and checks whenever or not schema & folder paths exists.
+    /// Validates provided parameters, and checks whenever schema & folder paths exists.
     pub fn prepare() -> Result<Self, exitcode::ExitCode> {
         let args: Vec<String> = env::args().collect();
 
@@ -47,19 +48,14 @@ impl Application {
             let mut buffer = [0; 1];
             let mut reader = std::io::stdin();
 
-            println!("Output folder is not empty, but is required to be. Proceed with delete? y/n");
+            println!("Output folder is not empty, this could potetionally delete some files, do you want to continue?");
 
             reader.read_exact(&mut buffer).unwrap();
-
-            let answer = buffer[0] as char;
-
+            let answer = (buffer[0] as char).to_lowercase().next().unwrap();
             if answer != 'y' {
-                println!("You have to provide empty output folder, exiting..");
+                println!("Aborting.");
                 return Err(exitcode::USAGE);
             }
-
-            std::fs::remove_dir_all(&output_dir)
-                .expect("Successfully deleted all contents of the output directory");
         }
 
         let app = Application { config };

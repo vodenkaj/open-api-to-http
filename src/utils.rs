@@ -21,7 +21,8 @@ pub fn create_folders(folders: &Vec<String>, output_path: &String) {
 pub fn create_file(data: &String, path: &String) {
     let mut file = OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
+        .truncate(true)
         .open(path)
         .unwrap();
 
