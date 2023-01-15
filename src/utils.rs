@@ -26,7 +26,6 @@ pub fn create_file(data: &String, path: &String) {
         .open(path)
         .unwrap();
 
-
     let res = file.write_all(data.as_bytes());
 
     match res {

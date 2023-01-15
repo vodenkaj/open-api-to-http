@@ -1,3 +1,5 @@
+use unwrap_or::{unwrap_err_or, unwrap_ok_or};
+
 use crate::{
     http_data::{HttpData, Names},
     open_api::OpenApi,
@@ -23,14 +25,25 @@ impl Application {
     pub fn prepare() -> Result<Self, exitcode::ExitCode> {
         let args: Vec<String> = env::args().collect();
 
-        if args.len() != 3 {
-            eprintln!("Not enough arguments");
+        unwrap_err_or!(get_argument(&args, &String::from("help"), &false), _, {
+            println!("Usage:");
+            println!("  open-api-to-http --output PATH --schema PATH");
+            println!("      generates http files from provided OpenAPI schema.");
+            return Err(exitcode::OK);
+        });
+
+        let file_path = unwrap_ok_or!(get_argument(&args, &String::from("schema"), &true), _, {
+            eprintln!("Schema path argument is missing!");
             return Err(exitcode::CONFIG);
-        }
+        });
+        let output_path = unwrap_ok_or!(get_argument(&args, &String::from("output"), &true), _, {
+            eprintln!("Output path argument is missing!");
+            return Err(exitcode::CONFIG);
+        });
 
         let config = Config {
-            file_path: args[1].clone(),
-            output_path: args[2].clone(),
+            file_path,
+            output_path,
         };
 
         if !Path::new(&config.file_path).exists() {
@@ -118,4 +131,22 @@ impl Application {
 
         return Ok(());
     }
+}
+
+fn get_argument(args: &Vec<String>, name: &String, with_value: &bool) -> Result<String, ()> {
+    let arg = args
+        .iter()
+        .position(|x| x.starts_with("--") && x.eq(&format!("--{}", name)));
+
+    if arg.is_none() || (*with_value && arg.unwrap() == args.len() - 1) {
+        return Err(());
+    }
+
+    if !with_value {
+        return Ok(name.clone());
+    } else if args[arg.unwrap() + 1].starts_with("--") {
+        return Err(());
+    }
+
+    return Ok(args[arg.unwrap() + 1].clone());
 }
