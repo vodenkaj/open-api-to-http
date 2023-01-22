@@ -86,7 +86,7 @@ impl Application {
             let names = Names::new(&path_name);
 
             for (method, endpoint_info) in endpoint_stucture {
-                let http_data = HttpData::new(&names, &endpoint_info, &method);
+                let http_data = HttpData::new(&names, &endpoint_info, &method, &schema.components);
                 formatted_data.push(http_data.get_formatted());
             }
 

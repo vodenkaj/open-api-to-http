@@ -10,9 +10,14 @@ use std::{
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
-    pub responses: HashMap<i32, Response>,
+    pub responses: Option<HashMap<i32, Response>>,
     pub parameters: Option<Vec<Parameters>>,
     pub request_body: Option<RequestBody>,
+    /// Lists the required security schemes to execute this operation.
+    /// The name used for each property MUST correspond to a security scheme
+    /// declared in the Security Schemes under the Components Object.
+    /// ref: https://spec.openapis.org/oas/v3.1.0#security-requirement-object
+    pub security: Option<Vec<HashMap<String, Vec<String>>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,7 +42,7 @@ pub struct RequestBody {
 /// ref: https://spec.openapis.org/oas/v3.1.0#mediaTypeObject
 #[derive(Serialize, Deserialize)]
 pub struct MediaType {
-    pub schema: Schema,
+    pub schema: Option<Schema>,
 }
 
 /// The Schema Object allows the definition of input and output data types. These types can be objects, but also primitives and arrays.
@@ -134,9 +139,64 @@ impl HttpMethod {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum SecurityType {
+    ApiKey,
+    Http,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum SecurityTokenLocation {
+    Query,
+    Header,
+    Cookie,
+}
+
+impl ToString for SecurityTokenLocation {
+    fn to_string(&self) -> String {
+        return format!("{:?}", &self);
+    }
+}
+
+/// Defines a security scheme that can be used by the operations.
+/// Currently supports only ApiKey & Bearer token.
+/// ref: https://spec.openapis.org/oas/v3.1.0#security-scheme-object
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum SecuritySchema {
+    ApiKey(SecuritySchemaApiKey),
+    BearerToken(SecuritySchemaBearerToken),
+    Unknown(Value),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SecuritySchemaBearerToken {
+    pub r#type: SecurityType,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SecuritySchemaApiKey {
+    pub r#type: SecurityType,
+    pub name: String,
+    pub r#in: SecurityTokenLocation,
+}
+
+/// Holds a set of reusable objects for different aspects of the OAS.
+/// All objects defined within the components object will have no effect
+/// on the API unless they are explicitly referenced from properties outside the components object.
+/// ref: https://spec.openapis.org/oas/v3.1.0#components
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Components {
+    pub security_schemes: Option<HashMap<String, SecuritySchema>>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct OpenApi {
     pub paths: HashMap<String, HashMap<HttpMethod, Operation>>,
+    pub components: Option<Components>,
 }
 
 impl OpenApi {

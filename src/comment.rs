@@ -1,11 +1,12 @@
-use std::collections::HashSet;
 use crate::open_api::PrimitiveType;
+use std::collections::HashSet;
 
 pub struct Comment {
     pub possible_types: HashSet<PrimitiveType>,
     pub name: String,
     pub required: Option<bool>,
     pub default: Option<String>,
+    pub description: Option<String>,
 }
 
 impl Comment {
@@ -29,11 +30,22 @@ impl Comment {
         if self.required.is_some() && !self.required.unwrap() {
             name_with_optional_indicator.push_str("?");
         }
-        return format!(
+        let mut comment = format!(
             "{}: {}",
             name_with_optional_indicator,
-            &self.possible_types.iter().map(|p_type| p_type.to_string()).collect::<Vec<String>>().join(",")
+            &self
+                .possible_types
+                .iter()
+                .map(|p_type| p_type.to_string())
+                .collect::<Vec<String>>()
+                .join(",")
         );
+
+        if let Some(desc) = &self.description {
+            comment.push_str(&format!(" - {}", desc));
+        }
+
+        return comment;
     }
 }
 
@@ -41,6 +53,7 @@ pub struct CommentsHolder {
     pub query: Vec<Comment>,
     pub parameters: Vec<Comment>,
     pub body: Vec<Comment>,
+    pub security: Vec<Comment>,
 }
 
 impl CommentsHolder {
@@ -82,6 +95,13 @@ impl CommentsHolder {
 
         if self.body.len() > 0 {
             output.push(get_formatted_comment(&self.body, &"Body".to_owned()));
+        }
+
+        if self.security.len() > 0 {
+            output.push(get_formatted_comment(
+                &self.security,
+                &"Authorization".to_owned(),
+            ));
         }
 
         return output.join("\n");

@@ -1,9 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     comment::{Comment, CommentsHolder},
     open_api::{self, Operation, PrimitiveType, Schema},
 };
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 enum HttpMethod {
@@ -51,6 +50,7 @@ impl Default for HttpData {
                 query: Vec::new(),
                 parameters: Vec::new(),
                 body: Vec::new(),
+                security: Vec::new(),
             },
             auth: None,
             content_type: None,
@@ -109,12 +109,50 @@ impl Names {
 }
 
 impl HttpData {
-    pub fn new(names: &Names, endpoint_info: &Operation, method: &open_api::HttpMethod) -> Self {
+    pub fn new(
+        names: &Names,
+        endpoint_info: &Operation,
+        method: &open_api::HttpMethod,
+        comps: &Option<open_api::Components>,
+    ) -> Self {
         let mut data: HttpData = Default::default();
 
         // convert raw schema method "get" -> "GET"
         data.method = HttpMethod::from(method.to_owned());
         data.path = names.http_path.to_owned();
+
+        // get auth
+        if let Some(comps) = comps {
+            if let (Some(auth_options), Some(security_schemas)) =
+                (&endpoint_info.security, &comps.security_schemes)
+            {
+                let auth = get_auth_schema(auth_options, &security_schemas);
+
+                if let Some(auth) = auth {
+                    match auth {
+                        open_api::SecuritySchema::BearerToken(_) => {
+                            data.auth = Some(String::from("Authorization: Bearer {{TOKEN}}"));
+                        }
+                        open_api::SecuritySchema::ApiKey(api_key) => {
+                            let comment = Comment {
+                                possible_types: HashSet::from([PrimitiveType::String]),
+                                name: api_key.name,
+                                required: Some(true),
+                                default: None,
+                                description: Some(format!(
+                                    "Located in {}",
+                                    &api_key.r#in.to_string()
+                                )),
+                            };
+                            data.comments.security.push(comment);
+                        }
+                        open_api::SecuritySchema::Unknown(_) => {
+                            // not implemented
+                        }
+                    }
+                }
+            }
+        }
 
         // get parameters
         if let Some(parameters) = &endpoint_info.parameters {
@@ -124,6 +162,7 @@ impl HttpData {
                     name: params.name.clone(),
                     required: params.required,
                     default: params.default.clone(),
+                    description: None,
                 };
 
                 match params.r#in.as_ref() {
@@ -142,41 +181,43 @@ impl HttpData {
                     "application/json" => {
                         // TODO: place it somewhere else
                         data.content_type = Some(String::from("Content-Type: application/json"));
-                        match &value.schema {
-                            Schema::Object(obj) => data.comments.body.append(
-                                &mut create_comment_from_props(&obj.properties, &obj.required),
-                            ),
+                        if let Some(schema) = &value.schema {
+                            match schema {
+                                Schema::Object(obj) => data.comments.body.append(
+                                    &mut create_comment_from_props(&obj.properties, &obj.required),
+                                ),
 
-                            Schema::AllOf { allOf } => {
-                                for obj in allOf {
-                                    data.comments.body.append(&mut create_comment_from_props(
-                                        &obj.properties,
-                                        &obj.required,
-                                    ));
+                                Schema::AllOf { allOf } => {
+                                    for obj in allOf {
+                                        data.comments.body.append(&mut create_comment_from_props(
+                                            &obj.properties,
+                                            &obj.required,
+                                        ));
+                                    }
                                 }
-                            }
-                            Schema::AnyOf { anyOf } => {
-                                for obj in anyOf {
-                                    data.comments.body.append(&mut create_comment_from_props(
-                                        &obj.properties,
-                                        &obj.required,
-                                    ));
+                                Schema::AnyOf { anyOf } => {
+                                    for obj in anyOf {
+                                        data.comments.body.append(&mut create_comment_from_props(
+                                            &obj.properties,
+                                            &obj.required,
+                                        ));
+                                    }
                                 }
-                            }
-                            Schema::OneOf { oneOf } => {
-                                for obj in oneOf {
-                                    data.comments.body.append(&mut create_comment_from_props(
-                                        &obj.properties,
-                                        &obj.required,
-                                    ));
+                                Schema::OneOf { oneOf } => {
+                                    for obj in oneOf {
+                                        data.comments.body.append(&mut create_comment_from_props(
+                                            &obj.properties,
+                                            &obj.required,
+                                        ));
+                                    }
                                 }
-                            }
-                            Schema::Not { not } => {
-                                for obj in not {
-                                    data.comments.body.append(&mut create_comment_from_props(
-                                        &obj.properties,
-                                        &obj.required,
-                                    ));
+                                Schema::Not { not } => {
+                                    for obj in not {
+                                        data.comments.body.append(&mut create_comment_from_props(
+                                            &obj.properties,
+                                            &obj.required,
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -185,8 +226,6 @@ impl HttpData {
                 }
             }
         }
-
-        // TODO: Check authorization
 
         return data;
     }
@@ -240,9 +279,35 @@ fn create_comment_from_props(
                         .unwrap_or_else(|| Vec::new())
                         .contains(&key.clone()),
                 ),
+                description: None,
             };
             comments.push(comment);
         }
     }
     return comments;
+}
+
+fn get_auth_schema(
+    auth_options: &Vec<HashMap<String, Vec<String>>>,
+    security_schema: &HashMap<String, open_api::SecuritySchema>,
+) -> Option<open_api::SecuritySchema> {
+    // TODO: There will need to be some kind of CLI prop,
+    // where user will be able to select / create priority map.
+    for auth in auth_options {
+        // First element in the object should always be a name of the security schema.
+        let auth_name = auth.keys().next();
+
+        if let Some(name) = auth_name {
+            let schema = match security_schema.get(name) {
+                Some(it) => it,
+                None => {
+                    eprintln!("[warn] {} is missing in the security_schema defition", name);
+                    return None;
+                }
+            };
+            return Some(schema.clone());
+        }
+    }
+    eprintln!("[warn] Matching security schema was not found");
+    return None;
 }
